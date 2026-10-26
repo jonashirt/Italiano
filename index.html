@@ -183,6 +183,10 @@ body:not(.kb) .sticky-keys{position:static}
 select.sel{font:17px var(--body);padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);width:100%;min-height:46px}
 select.sel.ok{border-color:var(--ok);background:var(--ok-bg)} select.sel.bad{border-color:var(--bad);background:var(--bad-bg)}
 .msol p{margin:8px 0 0;font-size:15px}
+.nline{display:grid;grid-template-columns:repeat(21,1fr);gap:2px;margin:8px 0 14px;border-top:3px solid var(--ink);padding-top:4px}
+.nline span{display:flex;flex-direction:column;align-items:center;font-size:11px;color:var(--muted);min-width:0}
+.nline span.on b{color:var(--ok)}
+.nline i{font-style:normal;writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;font-weight:700;color:var(--ok);margin-top:4px}
 
 /* ===== Design 2: modern & freundlich ===== */
 :root{
@@ -347,7 +351,9 @@ const ex=w=>`<span class="ex"><span class="it">${esc(w)}</span>${sayBtn(w)}</spa
    ====================================================================== */
 const UES=[
  {id:'ue1',name:'Unterrichtseinheit 1',date:'30.09.2026',src:'Schwarz-Weiß-Kopien',short:'Kopien'},
- {id:'ue2',name:'Unterrichtseinheit 2',date:'07.10.2026',src:'Bilder aus dem Buch',short:'Buch'}
+ {id:'ue2',name:'Unterrichtseinheit 2',date:'07.10.2026',src:'Bilder aus dem Buch',short:'Buch'},
+ {id:'ue3',name:'Unterrichtseinheit 3',date:'14.10.2026',src:'Buch S. 13, 14, 125, 212',short:'Buch'},
+ {id:'ue4',name:'Unterrichtseinheit 4',date:'21.10.2026',src:'Buch S. 15–17, 126, 127',short:'Buch'}
 ];
 const ueName=id=>(UES.find(u=>u.id===id)||{}).name||id;
 
@@ -1008,6 +1014,519 @@ function hwBubbles(v){
   $('#bshow').onclick=()=>BUB.forEach((x,i)=>{$('#m'+i).innerHTML=`<p><b>Lösung:</b> ${esc(x.m)}</p>`;});
 }
 
+/* ======================================================================
+   UE 3 (14.10.) und UE 4 (21.10.)
+   ====================================================================== */
+const LBL={};
+const lbl=(id,t)=>{LBL[id]=t;return id;};
+const NONE='kein Artikel';
+
+/* ---------- Dialoge (allgemein, mit erlaubten Alternativen) ---------- */
+function makeDialogView(list,src,pfx){
+  let idx=0;
+  list.forEach((d,i)=>lbl(pfx+':'+i,(d.label||src)+(list.length>1?' Dialog '+(i+1):'')));
+  const fv=function(v){
+    const d=list[idx];
+    let built=[],pool;
+    do{pool=shuffle(d.lines.map((t,i)=>({t,i})));}while(pool.every((x,k)=>x.t===d.lines[k]));
+    function draw(){
+      v.innerHTML=`<p class="muted">${list.length>1?`Dialog ${idx+1} von ${list.length} (${esc(src)}). `:`${esc(src)}. `}Tippe die Sätze in der richtigen Reihenfolge an. Ein Satz oben lässt sich durch Antippen zurücklegen.</p>
+      ${d.who?`<p class="muted">Sprecher der Reihe nach: ${esc(d.who.join(', '))}</p>`:''}
+      ${built.length?`<ol class="dlg">${built.map((x,k)=>`<li><button type="button" class="line" data-b="${k}">${d.who&&d.who[k]?`<b>${esc(d.who[k])}:</b> `:''}${esc(x.t)}</button></li>`).join('')}</ol>`:'<div class="dlg"><div class="dlg-empty">Hier entsteht dein Dialog.</div></div>'}
+      <div class="opts">${pool.map((x,k)=>`<button type="button" class="opt line" data-p="${k}">${esc(x.t)}</button>`).join('')}</div>
+      <div class="actions">${pool.length===0?'<button type="button" class="btn" id="dchk">Prüfen</button>':''}${list.length>1?'<button type="button" class="btn ghost" id="dnext">Nächster Dialog</button>':'<button type="button" class="btn ghost" id="dnext">Neu mischen</button>'}</div><div id="fb" aria-live="polite"></div>`;
+      v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{built.push(pool.splice(+b.dataset.p,1)[0]);draw();});
+      v.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{pool.push(built.splice(+b.dataset.b,1)[0]);draw();});
+      $('#dnext').onclick=()=>{idx=(idx+1)%list.length;fv(v);};
+      if($('#dchk'))$('#dchk').onclick=check;
+    }
+    function check(){
+      const seqs=[d.lines,...(d.alts||[])];
+      let best=seqs[0],bs=-1;
+      seqs.forEach(s=>{const sc=built.filter((x,k)=>x.t===s[k]).length;if(sc>bs){bs=sc;best=s;}});
+      const lines=v.querySelectorAll('.dlg .line');let all=true;
+      built.forEach((x,k)=>{const ok=x.t===best[k];lines[k].classList.add(ok?'ok':'bad');lines[k].disabled=true;if(!ok)all=false;});
+      grade(pfx+':'+idx,all);
+      $('#dchk').remove();
+      const fb=$('#fb');fb.className='fb '+(all?'ok':'bad');
+      const o=['formell (Sie)','informell (du)'];
+      fb.innerHTML=`<strong>${all?'Richtige Reihenfolge.':'Die Reihenfolge stimmt noch nicht.'}</strong>
+      <ol class="dlg" style="border:0;padding:0">${best.map((t,k)=>`<li><span>${d.who&&d.who[k]?`<b>${esc(d.who[k])}:</b> `:''}${esc(t)}</span></li>`).join('')}</ol>
+      ${d.note?`<p>${d.note}</p>`:''}
+      <p>Ist der Dialog formell oder informell?</p><div class="opts">${o.map((x,k)=>`<button type="button" class="opt" data-f="${k}">${x}</button>`).join('')}</div><div id="ffb"></div>`;
+      v.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{
+        const right=d.formal?0:1;
+        v.querySelectorAll('[data-f]').forEach((x,k)=>{x.disabled=true;if(k===right)x.classList.add('ok');else if(x===b)x.classList.add('bad');});
+        $('#ffb').innerHTML=`<p style="margin-top:8px">${d.why||''}</p>`;
+      });
+      fb.scrollIntoView({block:'nearest',behavior:'smooth'});
+    }
+    draw();
+  };
+  fv.ids=()=>list.map((d,i)=>pfx+':'+i);
+  return fv;
+}
+
+/* ================= UE 3: Herkunft, Nationalitäten ================= */
+const DLG3=[
+ {label:'S. 13',formal:false,lines:['Ciao, Paolo!',"Oh, ciao! … Eh … lei è Francesca, un'amica di Bellinzona. Francesca … Marina …",'Piacere!','Ciao!','… e lui è Claudio.','Ciao!','Piacere.','Allora tu sei svizzera.','Eh sì! E tu, invece, di dove sei?','Sono di San Gimignano.'],
+  alts:[
+   ['Ciao, Paolo!',"Oh, ciao! … Eh … lei è Francesca, un'amica di Bellinzona. Francesca … Marina …",'Ciao!','Piacere!','… e lui è Claudio.','Ciao!','Piacere.','Allora tu sei svizzera.','Eh sì! E tu, invece, di dove sei?','Sono di San Gimignano.'],
+   ['Ciao, Paolo!',"Oh, ciao! … Eh … lei è Francesca, un'amica di Bellinzona. Francesca … Marina …",'Piacere!','Ciao!','… e lui è Claudio.','Piacere.','Ciao!','Allora tu sei svizzera.','Eh sì! E tu, invece, di dove sei?','Sono di San Gimignano.'],
+   ['Ciao, Paolo!',"Oh, ciao! … Eh … lei è Francesca, un'amica di Bellinzona. Francesca … Marina …",'Ciao!','Piacere!','… e lui è Claudio.','Piacere.','Ciao!','Allora tu sei svizzera.','Eh sì! E tu, invece, di dove sei?','Sono di San Gimignano.']],
+  note:'Bei „Piacere“ und „Ciao“ nach einer Vorstellung ist die Reihenfolge frei, beides wird akzeptiert.',
+  why:'Informell: <span class="it">ciao</span>, Vornamen, <span class="it">tu sei</span>, <span class="it">di dove sei?</span>'},
+ {label:'S. 13',formal:true,lines:['Oh, buongiorno, signor Bruni!','Buongiorno! … Signora Monfalco … il signor Klum, un amico di Vienna.','Molto lieta.','Piacere.',"E Lei, signora, di dov'è?",'Di Torino.'],
+  alts:[['Oh, buongiorno, signor Bruni!','Buongiorno! … Signora Monfalco … il signor Klum, un amico di Vienna.','Piacere.','Molto lieta.',"E Lei, signora, di dov'è?",'Di Torino.']],
+  why:'Formell: <span class="it">buongiorno</span>, <span class="it">signor/signora</span>, <span class="it">molto lieta</span>, <span class="it">Lei … di dov\'è?</span>'}
+];
+const dialogView3=makeDialogView(DLG3,'S. 13','d3');
+
+const FORMAL3=[
+ ["E Lei, di dov'è?",'Sie'],['E tu, di dove sei?','du'],['Molto lieto.','Sie'],['Molto lieta.','Sie'],
+ ['Buongiorno, signor Bruni!','Sie'],['Allora tu sei svizzera.','du'],['Ciao, Paolo!','du'],['Lui è Claudio.','du']
+];
+const TRANS3=[
+ {de:'Woher bist du?',o:['Di dove sei?',"Di dov'è?",'Dove sei?','Di dove sono?'],a:'Di dove sei?'},
+ {de:'Woher sind Sie?',o:["Di dov'è?",'Di dove sei?','Di dove sono?',"Dov'è?"],a:"Di dov'è?"},
+ {de:'Ich bin aus Turin.',o:['Sono di Torino.','Sei di Torino.','È di Torino.','Sono a Torino.'],a:'Sono di Torino.'},
+ {de:'Ich bin auch aus Rom.',o:["Anch'io sono di Roma.",'Anche sono di Roma.','Io sono anche Roma.',"Anch'io sei di Roma."],a:"Anch'io sono di Roma."},
+ {de:'Sehr erfreut. (als Frau)',o:['Molto lieta.','Molto lieto.','Molto bene.','Molto prego.'],a:'Molto lieta.'},
+ {de:'Sehr erfreut. (als Mann)',o:['Molto lieto.','Molto lieta.','Molto bene.','Molto prego.'],a:'Molto lieto.'},
+ {de:'Ich wohne in Rom.',o:['Io abito a Roma.','Io abito in Roma.','Io abito di Roma.','Io sono Roma.'],a:'Io abito a Roma.'},
+ {de:'Und du hingegen, woher bist du?',o:['E tu, invece, di dove sei?','E tu, allora, di dove sei?',"E Lei, invece, di dov'è?",'E tu, anche, di dove sei?'],a:'E tu, invece, di dove sei?'},
+ {de:'Also bist du Schweizerin.',o:['Allora tu sei svizzera.','Invece tu sei svizzera.','Allora tu è svizzera.','Allora tu sei svizzero.'],a:'Allora tu sei svizzera.'},
+ {de:'Bis morgen!',o:['A domani!','Alla prossima!',"Sogni d'oro!",'Buona serata!'],a:'A domani!'},
+ {de:'Bis zum nächsten Mal!',o:['Alla prossima!','A domani!',"Sogni d'oro!",'Buona giornata!'],a:'Alla prossima!'},
+ {de:'Süße Träume! (vor dem Schlafen)',o:["Sogni d'oro!",'Alla prossima!','A domani!','Buona serata!'],a:"Sogni d'oro!"}
+];
+const RESP3=[
+ {q:'Tu sei svizzera?',o:['Sì, sono svizzera.','Sì, sei svizzera.','Sì, è svizzera.','Sì, siamo svizzera.'],a:'Sì, sono svizzera.'},
+ {q:'Tu sei di Roma?',o:['No, sono di Torino.','No, sei di Torino.','No, è di Torino.','No, sono a Torino.'],a:'No, sono di Torino.'},
+ {q:"E Lei, signora, di dov'è?",o:['Di Torino.','Sei di Torino.','A Torino.','Torino sono.'],a:'Di Torino.'},
+ {q:'Sono di Roma. E tu?',o:["Anch'io sono di Roma.","Anch'io è di Roma.",'Anche sei di Roma.',"Anch'io sei di Roma."],a:"Anch'io sono di Roma."}
+];
+const SIGN3=[
+ ['Buongiorno, ___ signor Bruni!',NONE],['Buongiorno, ___ signora Monfalco!',NONE],
+ ['___ signor Klum è un amico di Vienna.','il'],['___ signora Monfalco è di Torino.','la']
+];
+const AIN3=[
+ ['Io abito ___ Roma.','a','Stadt'],['Io abito ___ Lazio.','in','Region'],['Io abito ___ Torino.','a','Stadt'],
+ ['Io abito ___ Piemonte.','in','Region'],['Io abito ___ Italia.','in','Land']
+];
+const SIGN_EX='Direkte Anrede ohne Artikel: <span class="it">Buongiorno, signor Bruni!</span> Spricht man über die Person, mit Artikel: <span class="it">il signor Klum, la signora Monfalco</span>.';
+function genHerk(){
+  const r=Math.random();
+  if(r<.18){const f=pickW(FORMAL3,x=>'f3:'+x[0]);const o=['formell (Sie)','informell (du)'];
+    return {id:'f3:'+f[0],sub:'Formell oder informell?',prompt:esc(f[0]),small:true,kind:'choice',options:o,answers:[f[1]==='Sie'?o[0]:o[1]],
+     explain:'Sie: <span class="it">Lei … di dov\'è?</span>, <span class="it">molto lieto/lieta</span>, <span class="it">signor/signora</span> · du: <span class="it">tu sei</span>, <span class="it">di dove sei?</span>, Vornamen'};}
+  if(r<.55){const t=pickW(TRANS3,x=>'t3:'+x.de);
+    return {id:'t3:'+t.de,sub:'Wie sagt man das auf Italienisch?',prompt:esc(t.de),small:true,kind:'choice',options:shuffle(t.o),answers:[t.a],itAns:true};}
+  if(r<.7){const t=pickW(RESP3,x=>'r3:'+x.q);
+    return {id:'r3:'+t.q,sub:'Was ist die passende Antwort?',prompt:esc(t.q),small:true,kind:'choice',options:shuffle(t.o),answers:[t.a],itAns:true};}
+  if(r<.85){const s=pickW(SIGN3,x=>'sg3:'+x[0]);
+    return {id:'sg3:'+s[0],sub:'Artikel vor signor/signora?',prompt:esc(s[0]).replace('___','<span class="blank">__</span>'),plain:s[0],small:true,kind:'choice',options:['il','la',NONE],answers:[s[1]],explain:SIGN_EX};}
+  const a=pickW(AIN3,x=>'ai:'+x[0]);
+  return {id:'ai:'+a[0],sub:`a oder in? (${a[2]})`,prompt:esc(a[0]).replace('___','<span class="blank">__</span>'),plain:a[0],small:true,kind:'choice',options:['a','in'],answers:[a[1]],explain:'Stadt: <span class="it">a</span> (a Roma). Region oder Land: <span class="it">in</span> (in Lazio, in Italia).'};
+}
+genHerk.ids=()=>[...FORMAL3.map(x=>'f3:'+x[0]),...TRANS3.map(x=>'t3:'+x.de),...RESP3.map(x=>'r3:'+x.q),...SIGN3.map(x=>'sg3:'+x[0]),...AIN3.map(x=>'ai:'+x[0])];
+FORMAL3.forEach(x=>lbl('f3:'+x[0],x[0]+' (formell/informell)'));
+TRANS3.forEach(x=>lbl('t3:'+x.de,x.de+' → '+x.a));
+RESP3.forEach(x=>lbl('r3:'+x.q,x.q+' → '+x.a));
+SIGN3.forEach(x=>lbl('sg3:'+x[0],x[0].replace('___',x[1]===NONE?'–':x[1])));
+AIN3.forEach(x=>lbl('ai:'+x[0],x[0].replace('___',x[1])));
+
+/* Länderliste S. 212 */
+const NAZ=[
+ ['Albania','Albanien','albanese',['l\'albanese']],
+ ['Argentina','Argentinien','argentino, -a',['lo spagnolo']],
+ ['Austria','Österreich','austriaco, -a',['il tedesco']],
+ ['Belgio','Belgien','belga (m./f.)',['il francese','il fiammingo','il tedesco']],
+ ['Brasile, il','Brasilien','brasiliano, -a',['il portoghese']],
+ ['Bulgaria','Bulgarien','bulgaro, -a',['il bulgaro']],
+ ['Canada, il','Kanada','canadese',['l\'inglese','il francese']],
+ ['Cile','Chile','cileno, -a',['lo spagnolo']],
+ ['Cina','China','cinese',['il cinese']],
+ ['Cipro','Zypern','cipriota (m./f.)',['il greco','il turco']],
+ ['Croazia','Kroatien','croato, -a',['il croato']],
+ ['Danimarca','Dänemark','danese',['il danese']],
+ ['Estonia','Estland','estone',['l\'estone']],
+ ['Finlandia','Finnland','finlandese',['il finlandese']],
+ ['Francia','Frankreich','francese',['il francese']],
+ ['Germania','Deutschland','tedesco, -a',['il tedesco']],
+ ['Giappone, il','Japan','giapponese',['il giapponese']],
+ ['Grecia','Griechenland','greco, -a',['il greco']],
+ ['Inghilterra','England','inglese',['l\'inglese']],
+ ['Irlanda','Irland','irlandese',['l\'inglese']],
+ ['Italia','Italien','italiano, -a',['l\'italiano']],
+ ['Lettonia','Lettland','lettone',['il lettone']],
+ ['Lituania','Litauen','lituano, -a',['il lituano']],
+ ['Lussemburgo','Luxemburg','lussemburghese',['il francese','il lussemburghese','il tedesco']],
+ ['Malta','Malta','maltese',['l\'inglese','il maltese']],
+ ['Messico','Mexiko','messicano, -a',['lo spagnolo']],
+ ['Norvegia','Norwegen','norvegese',['il norvegese']],
+ ['Olanda','Holland','olandese',['l\'olandese']],
+ ['Perù, il','Peru','peruviano, -a',['lo spagnolo']],
+ ['Polonia','Polen','polacco, -a',['il polacco']],
+ ['Portogallo','Portugal','portoghese',['il portoghese']],
+ ['Repubblica Ceca / Cechia','Tschechien','ceco, -a',['il ceco']],
+ ['Romania','Rumänien','romeno, -a',['il romeno']],
+ ['Russia','Russland','russo, -a',['il russo']],
+ ['Repubblica Slovacca / Slovacchia','Slowakei','slovacco, -a',['lo slovacco']],
+ ['Slovenia','Slowenien','sloveno, -a',['lo sloveno']],
+ ['Spagna','Spanien','spagnolo, -a',['lo spagnolo']],
+ ['Stati Uniti, gli','USA','statunitense, americano',['l\'inglese']],
+ ['Svezia','Schweden','svedese',['lo svedese']],
+ ['Svizzera','Schweiz','svizzero, -a',['il francese','l\'italiano','il tedesco']],
+ ['Turchia','Türkei','turco, -a',['il turco']],
+ ['Ungheria','Ungarn','ungherese',['l\'ungherese']],
+ ['Unione Europea','Europäische Union','europeo, -a',[]]
+].map(([p,de,n,l])=>{
+  let m,f;
+  if(n.endsWith(', -a')){m=[n.slice(0,-4)];f=[m[0].slice(0,-1)+'a'];}
+  else if(n.includes('(m./f.)')){m=f=[n.split(' ')[0]];}
+  else if(n==='statunitense, americano'){m=['statunitense','americano'];f=['statunitense','americana'];}
+  else m=f=[n];
+  return {p,de,n,l,m,f,short:p.replace(/, (il|gli)$/,'').split(' / ').pop()};
+});
+const ALLLANG=[...new Set(NAZ.flatMap(x=>x.l))];
+NAZ.forEach(x=>{lbl('n3:'+x.p,x.short+' → '+x.m.join(' / '));if(x.l.length)lbl('l3:'+x.p,x.short+': '+x.l.join(', '));});
+
+const P14=[
+ ['Albert Einstein','m','tedesco'],['Pablo Picasso','m','spagnolo'],['Regina Isabella di Castiglia','f','spagnola'],
+ ['Maria Montessori','f','italiana'],['Leonardo da Vinci','m','italiano'],['Margaret Thatcher','f','inglese'],
+ ['Elisabetta di Baviera','f','tedesca'],['Napoleone Bonaparte','m','francese']
+];
+const P14OPT=['tedesco','americana','tedesca','austriaco','inglese','spagnola','spagnolo','francese','italiano','olandese','turco','polacca','svedese','italiana'];
+const E14=[['Jane','american','a'],['Alain','frances','e'],['Paul','tedesc','o'],['Carmen','spagnol','a'],['Ferzan','turc','o'],['Ariane','olandes','e']];
+P14.forEach(x=>lbl('p3:'+x[0],x[0]+' → '+x[2]));
+E14.forEach(x=>lbl('e3:'+x[0],x[0]+' è '+x[1]+x[2]));
+
+const NAZ_RULE='Adjektive auf <b>-o</b>: männlich <b>-o</b>, weiblich <b>-a</b> (tedesco, tedesca). Adjektive auf <b>-e</b>: gleich für beide (francese).';
+function genNaz(){
+  const r=Math.random();
+  if(r<.3){
+    const x=pickW(NAZ,y=>'n3:'+y.p);
+    const others=shuffle(NAZ.filter(y=>y!==x&&!y.m.some(z=>x.m.includes(z)))).slice(0,3).map(y=>y.m[0]);
+    return {id:'n3:'+x.p,sub:`Nationalität, männliche Form (${x.de})`,prompt:esc(x.short),small:true,kind:'choice',options:shuffle([x.m[0],...others]),answers:x.m,itAns:true,
+      explain:`Laut Liste: <span class="it">${esc(x.n)}</span>.`};
+  }
+  if(r<.55){
+    const ls=NAZ.filter(y=>y.l.length);const x=pickW(ls,y=>'l3:'+y.p);
+    const right=pick(x.l);
+    const others=shuffle(ALLLANG.filter(l=>!x.l.includes(l))).slice(0,3);
+    return {id:'l3:'+x.p,sub:'Welche Sprache spricht man dort?',prompt:esc(x.short)+` <span class="muted" style="font-size:.55em">(${esc(x.de)})</span>`,plain:x.short,small:true,kind:'choice',options:shuffle([right,...others]),answers:x.l,itAns:true,
+      explain:x.l.length>1?'Laut Liste: '+esc(x.l.join(', '))+'.':''};
+  }
+  if(r<.78){
+    const x=pickW(E14,y=>'e3:'+y[0]);
+    return {id:'e3:'+x[0],sub:'Welche Endung? (S. 14 Nr. 9b)',prompt:`${esc(x[0])} è ${esc(x[1])}<span class="blank">__</span>`,plain:`${x[0]} è ${x[1]}_`,small:true,kind:'choice',options:['-o','-a','-e'],answers:['-'+x[2]],explain:NAZ_RULE};
+  }
+  const x=pickW(P14,y=>'p3:'+y[0]);
+  const same=P14OPT.filter(o=>o!==x[2]&&(x[1]==='m'?!o.endsWith('a'):!o.endsWith('o')));
+  return {id:'p3:'+x[0],sub:'Welche Nationalität? (S. 14 Nr. 9a)',prompt:esc(x[0]),small:true,kind:'choice',options:shuffle([x[2],...shuffle(same).slice(0,3)]),answers:[x[2]],itAns:true,
+    explain:(x[1]==='f'?'Frau, also weibliche Form. ':'Mann, also männliche Form. ')+NAZ_RULE};
+}
+genNaz.ids=()=>[...NAZ.map(x=>'n3:'+x.p),...NAZ.filter(x=>x.l.length).map(x=>'l3:'+x.p),...E14.map(x=>'e3:'+x[0]),...P14.map(x=>'p3:'+x[0])];
+
+const W3G=[
+ {name:'Wörter',items:[['invece','hingegen'],['allora','also'],['anche','auch'],['la moglie','die Ehefrau'],['un amico','ein Freund'],["un'amica",'eine Freundin'],['il signor …','Herr …'],['la signora …','Frau …'],['svizzero, svizzera','Schweizer, Schweizerin']]},
+ {name:'Herkunft & Vorstellen',phr:true,items:[['Di dove sei?','Woher bist du?'],["Di dov'è?",'Woher sind Sie? / Woher ist er/sie?'],['Sono di …','Ich bin aus …'],["Anch'io sono di …",'Ich bin auch aus …'],['Io abito a Roma, in Lazio.','Ich wohne in Rom, in Latium.'],['Tu sei …? – Sì, sono …','Bist du …? – Ja, ich bin …'],['Molto lieto.','Sehr erfreut. (Mann)'],['Molto lieta.','Sehr erfreut. (Frau)']]},
+ {name:'Abschied',phr:true,items:[['Alla prossima!','Bis zum nächsten Mal!'],['A domani!','Bis morgen!'],["Sogni d'oro!",'Süße Träume! (wörtlich: goldene Träume)']]}
+];
+const W3=flatW(W3G);const genW3=makeWordGen(W3);
+
+function learnHerk(v){
+  v.innerHTML=`<div class="tw"><table><thead><tr><th></th><th>formell (Sie)</th><th>informell (du)</th></tr></thead><tbody>
+   <tr><td>jemanden vorstellen</td><td class="it">il signor … / la signora …</td><td class="it">Lui è … / Lei è …</td></tr>
+   <tr><td>reagieren, wenn man vorgestellt wird</td><td class="it">Molto lieto. / Molto lieta.</td><td class="it">Piacere!</td></tr>
+   <tr><td>nach der Herkunft fragen</td><td class="it">E Lei, di dov'è?</td><td class="it">E tu, di dove sei?</td></tr>
+   <tr><td>die eigene Herkunft angeben</td><td class="it">(Io) sono di …</td><td class="it">(Io) sono di …</td></tr>
+  </tbody></table></div>
+  <div class="note"><p><span class="it">Molto lieto</span> sagt ein Mann, <span class="it">molto lieta</span> eine Frau. <span class="it">Piacere</span> passt für beide und kommt im Buch auch im formellen Dialog vor.</p></div>
+  <h2>signor / signora</h2>
+  <div class="note"><p>${SIGN_EX}</p><p class="muted">Im Heft steht „immer Artikel“. Laut Buch (S. 13) gilt das nur, wenn man über die Person spricht, nicht bei der direkten Anrede.</p></div>
+  <h2>Herkunft und Wohnort</h2>
+  <ul class="list">
+   <li><span class="it">Tu sei …? – Sì, sono … / No, sono …</span></li>
+   <li><span class="it">Anche io sono di … = Anch'io sono di …</span></li>
+   <li><span class="it">Io abito a Roma, in Lazio.</span><span class="de">Stadt: a · Region/Land: in</span></li>
+  </ul>
+  <h2>essere</h2>${ctable(['essere'])}
+  <h2>Dialog 1 (S. 13, informell)</h2>
+  <ul class="list">${DLG3[0].lines.map(t=>`<li><span class="it">${esc(t)}</span></li>`).join('')}</ul>
+  <h2>Dialog 2 (S. 13, formell)</h2>
+  <ul class="list">${DLG3[1].lines.map(t=>`<li><span class="it">${esc(t)}</span></li>`).join('')}</ul>`;
+}
+function learnNaz(v){
+  v.innerHTML=`<div class="tw"><table><thead><tr><th>Endung</th><th>männlich</th><th>weiblich</th></tr></thead><tbody>
+   <tr><td>-o / -a</td><td class="it">tedesco, italiano</td><td class="it">tedesca, italiana</td></tr>
+   <tr><td>-e (beide gleich)</td><td class="it">francese, inglese</td><td class="it">francese, inglese</td></tr>
+  </tbody></table></div>
+  <div class="note"><p>Die Nationalität richtet sich nach der Person: <span class="it">Paul è tedesco</span>, <span class="it">Carmen è spagnola</span>, <span class="it">Ariane è olandese</span>.</p></div>
+  <h2>Persönlichkeiten (S. 14 Nr. 9a)</h2>
+  <ul class="list">${P14.map(x=>`<li><span>${esc(x[0])}</span><span class="de it">${esc(x[2])}</span></li>`).join('')}</ul>
+  <h2>S. 14 Nr. 9b</h2>
+  <ul class="list">${E14.map(x=>`<li><span class="it">${esc(x[0])} è ${esc(x[1])}<b>${x[2]}</b></span></li>`).join('')}</ul>`;
+}
+function learnLaender(v){
+  v.innerHTML=`<p class="muted">Liste S. 212. Bei <span class="it">-o, -a</span> gibt es eine männliche und eine weibliche Form.</p>
+  <div class="note"><p>Länder mit Artikel aus der Liste: <span class="it">il Brasile, il Canada, il Giappone, il Perù, gli Stati Uniti</span> (Mehrzahl).</p></div>
+  <div class="tw"><table><thead><tr><th>Paese</th><th>nazionalità</th><th>lingua</th></tr></thead><tbody>
+  ${NAZ.map(x=>`<tr><td><span class="it">${esc(x.p)}</span><br><span class="muted">${esc(x.de)}</span></td><td class="it">${esc(x.n)}</td><td class="it">${esc(x.l.join(', ')||'–')}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+
+/* ---------- HA UE 3: S. 125 Nr. 5 und 7 ---------- */
+const S5=['Piacere, io sono Marco.','Buongiorno, mi chiamo Anna Marchesi. E Lei?','Buongiorno.','Ciao, io mi chiamo Cinzia. E tu?','Piacere! Sono Francesco Marini.','Buongiorno, sono Caterina Monti, sono la vostra insegnante di italiano.'];
+const S5SOL=[[3,0],[1,4],[5,2]];
+function hw125_5(v){
+  v.innerHTML=`<p class="muted">Bilde aus den sechs Sätzen drei Mini-Dialoge mit je zwei Sätzen. Die Reihenfolge der Dialoge ist egal.</p>
+  <ul class="list">${S5.map(t=>`<li><span class="it">${esc(t)}</span></li>`).join('')}</ul>
+  ${[0,1,2].map(d=>`<div class="prow"><h3>Dialog ${d+1}</h3>${[0,1].map(k=>`<label class="hwrow"><span>${k?'Antwort':'Beginn'}</span><select class="sel" data-d="${d}" data-k="${k}"><option value="">wählen …</option>${S5.map((t,i)=>`<option value="${i}">${esc(t)}</option>`).join('')}</select></label>`).join('')}</div>`).join('')}
+  <div class="actions"><button type="button" class="btn" id="m5chk">Prüfen</button><button type="button" class="btn ghost" id="m5show">Lösung zeigen</button></div>
+  <div id="fb" aria-live="polite"></div>`;
+  const sel=(d,k)=>v.querySelector(`select[data-d="${d}"][data-k="${k}"]`);
+  const sol=()=>`<p><b>Lösung (begründet, kein Lösungsschlüssel des Buchs):</b></p><ol class="checks">${S5SOL.map(([a,b])=>`<li><span class="it">${esc(S5[a])}</span><br>→ <span class="it">${esc(S5[b])}</span></li>`).join('')}</ol>
+   <p>Begründung: Auf das informelle <span class="it">E tu?</span> antwortet man mit dem Vornamen (Marco). Auf das formelle <span class="it">E Lei?</span> mit vollem Namen (Francesco Marini). Die Lehrerin wird mit <span class="it">Buongiorno</span> zurückgegrüßt.</p>`;
+  $('#m5chk').onclick=()=>{
+    let r=0;
+    [0,1,2].forEach(d=>{
+      const a=sel(d,0),b=sel(d,1);[a,b].forEach(s=>s.classList.remove('ok','bad'));
+      if(a.value===''||b.value==='')return;
+      const ok=S5SOL.some(([x,y])=>+a.value===x&&+b.value===y);
+      [a,b].forEach(s=>s.classList.add(ok?'ok':'bad'));if(ok)r++;
+    });
+    grade(lbl('hw:m5','S. 125 Nr. 5'),r===3);
+    const fb=$('#fb');fb.className='fb '+(r===3?'ok':'bad');
+    fb.innerHTML=`<strong>${r} von 3 Dialogen richtig</strong>${bar(r,3-r,3)}${r<3?sol():''}`;
+  };
+  $('#m5show').onclick=()=>{S5SOL.forEach(([a,b],d)=>{sel(d,0).value=a;sel(d,1).value=b;});const fb=$('#fb');fb.className='fb ok';fb.innerHTML=sol();};
+}
+const F7=[
+ {n:1,pre:'◆ Ciao. Come',post:'?',a:['ti chiami']},
+ {pre:'● Paolo! E tu? ◆',post:'Carlo, piacere!',a:['mi chiamo','sono']},
+ {n:2,pre:'▲ Buonasera, io',post:'Clara Boni, e Lei?',a:['sono','mi chiamo']},
+ {pre:'● Buonasera,',post:'Giovanni Gori.',a:['sono','mi chiamo']},
+ {n:3,pre:'■ Tu',post:'Marina? ▲ Sì.',a:['ti chiami','sei']},
+ {n:4,pre:'◆ Buongiorno, Lei',post:'Barbara Raspetti?',a:['si chiama','è']},
+ {pre:'● Sì. E Lei? ◆',post:'Antonella Rosi.',a:['mi chiamo','sono']}
+];
+function fillSheet(v,items,key,label,intro){
+  v.innerHTML=`<p class="muted">${intro}</p>
+  ${items.map((x,i)=>`<div class="prow">${x.n?`<h3>${x.n}</h3>`:''}<p style="margin:4px 0 6px">${esc(x.pre)} <span class="blank">__</span> ${esc(x.post)}</p><input class="ans" data-f="${i}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Lücke ${i+1}"><div class="msol" id="fs${i}"></div></div>`).join('')}
+  ${keysHtml()}
+  <div class="actions"><button type="button" class="btn" id="fchk">Prüfen</button><button type="button" class="btn ghost" id="fshow">Lösung zeigen</button></div>
+  <div id="fb" aria-live="polite"></div>`;
+  const ins=[...v.querySelectorAll('input.ans')];
+  ins.forEach((inp,k)=>inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();if(ins[k+1])ins[k+1].focus();else $('#fchk').click();}});
+  const ok=(x,val)=>x.test?x.test(norm(val)):x.a.some(a=>norm(a)===norm(val));
+  $('#fchk').onclick=()=>{
+    let r=0,w=0,e=0;
+    ins.forEach((inp,i)=>{const x=items[i];inp.classList.remove('ok','bad');$('#fs'+i).innerHTML='';
+      if(!inp.value.trim()){e++;return;}
+      const good=ok(x,inp.value);inp.classList.add(good?'ok':'bad');
+      if(good){r++;if(x.a.length>1)$('#fs'+i).innerHTML=`<p class="muted">Auch möglich: ${esc(x.a.filter(a=>norm(a)!==norm(inp.value)).join(', '))}</p>`;}
+      else{w++;$('#fs'+i).innerHTML=`<p>Richtig: <span class="it">${esc(x.a.join(' / '))}</span></p>`;}
+    });
+    grade(lbl(key,label),r===items.length);
+    const fb=$('#fb');fb.className='fb '+(r===items.length?'ok':'bad');
+    fb.innerHTML=`<strong>${r===items.length?'Alles richtig!':`${r} richtig, ${w} falsch, ${e} leer`}</strong>${bar(r,w,items.length)}`;
+  };
+  $('#fshow').onclick=()=>{ins.forEach((inp,i)=>{inp.value=items[i].a[0];});$('#fchk').click();};
+}
+const hw125_7=v=>fillSheet(v,F7,'hw:f7','S. 125 Nr. 7','Ergänze die passende Form von essere oder chiamarsi. Mehrfachnennungen möglich.');
+
+/* ================= UE 4: Alphabet, Zahlen, Im Kurs ================= */
+const ALPHA=[['B','bi'],['C','ci'],['D','di'],['F','effe'],['G','gi'],['H','acca'],['L','elle'],['M','emme'],['N','enne'],['P','pi'],['Q','cu'],['R','erre'],['S','esse'],['T','ti'],['V','vi / vu'],['Z','zeta'],['J','i lunga'],['K','kappa'],['W','doppia vu'],['X','ics'],['Y','ipsilon'],['ü','u con i puntini'],['ö','o con i puntini'],['ä','a con i puntini'],['@','chiocciola']];
+const LNAME=Object.fromEntries([...ALPHA.map(([l,n])=>[l.toLowerCase(),n.split(' / ')[0]]),['a','a'],['e','e'],['i','i'],['o','o'],['u','u']]);
+const SPELLW=['Müller','Roma','Torino','Milano','Orvieto','gelato','pizza','chiesa','albero','pagina','Köln','Bellinzona','Klum','Wagner'];
+const spell=w=>[...w.toLowerCase()].map(c=>LNAME[c]||c).join(' – ');
+ALPHA.forEach(([l,n])=>{lbl('ab:'+l,l+' = '+n);lbl('an:'+l,n+' = '+l);});
+SPELLW.forEach(w=>lbl('as:'+w,spell(w)+' = '+w));
+function genAlfa(){
+  const r=Math.random();
+  if(r<.38){
+    const x=pickW(ALPHA,y=>'ab:'+y[0]);
+    const others=shuffle(ALPHA.filter(y=>y!==x)).slice(0,3).map(y=>y[1]);
+    return {id:'ab:'+x[0],sub:'Wie heißt der Buchstabe auf Italienisch?',prompt:esc(x[0]),kind:'choice',options:shuffle([x[1],...others]),answers:[x[1]],itAns:true};
+  }
+  if(r<.68){
+    const x=pickW(ALPHA,y=>'an:'+y[0]);
+    return {id:'an:'+x[0],sub:'Welcher Buchstabe oder welches Zeichen ist das?',prompt:esc(x[1]),small:true,kind:'input',ph:'Buchstabe',answers:[x[0]],explain:x[0]==='V'?'V heißt vi oder vu.':''};
+  }
+  const w=pickW(SPELLW,y=>'as:'+y);
+  return {id:'as:'+w,sub:'Welches Wort wird hier buchstabiert?',prompt:esc(spell(w)),small:true,kind:'input',ph:'Wort',answers:[w],explain:''};
+}
+genAlfa.ids=()=>[...ALPHA.map(x=>'ab:'+x[0]),...ALPHA.map(x=>'an:'+x[0]),...SPELLW.map(w=>'as:'+w)];
+
+const NUMS=['zero','uno','due','tre','quattro','cinque','sei','sette','otto','nove','dieci','undici','dodici','tredici','quattordici','quindici','sedici','diciassette','diciotto','diciannove','venti'];
+NUMS.forEach((w,i)=>{lbl('nz:'+i,i+' = '+w);lbl('nw:'+i,w+' = '+i);});
+function genNum(){
+  if(Math.random()<.55){
+    const i=pickW(NUMS.map((w,k)=>k),k=>'nz:'+k);
+    return {id:'nz:'+i,sub:'Schreib die Zahl auf Italienisch',prompt:String(i),kind:'input',ph:'Zahlwort',answers:[NUMS[i]],itAns:true,
+      explain:i>=17&&i<=19?'17–19 beginnen mit <span class="it">dici-</span>: diciassette, diciotto, diciannove.':(i>=11&&i<=16?'11–16 enden auf <span class="it">-dici</span>.':'')};
+  }
+  const i=pickW(NUMS.map((w,k)=>k),k=>'nw:'+k);
+  return {id:'nw:'+i,sub:'Welche Zahl ist das?',prompt:esc(NUMS[i]),kind:'input',ph:'Ziffer, z. B. 7',answers:[String(i)]};
+}
+genNum.ids=()=>NUMS.flatMap((w,i)=>['nz:'+i,'nw:'+i]);
+
+const KURS4=[
+ ['Wie bitte?','Come, scusi?'],['Wie spricht man dieses Wort aus?','Come si pronuncia questa parola?'],['Wie schreibt man …?','Come si scrive …?'],
+ ['Auf welcher Seite?','A che pagina?'],['Wie sagt man …?','Come si dice …?'],['Können Sie bitte wiederholen?','Può ripetere, per favore?'],
+ ['Kannst du bitte wiederholen?','Puoi ripetere, per favore?'],['Was bedeutet …?','Che cosa significa …?'],
+ ['Entschuldige! (du)','Scusa!'],['Entschuldigen Sie! (Sie)','Scusi!'],['Hör mal! (du)','Senti!'],['Hören Sie! (Sie)','Senta!'],['Hallo? (am Telefon)','Pronto!']
+];
+const DUSIE4=[['Scusa!','du'],['Scusi!','Sie'],['Senti!','du'],['Senta!','Sie'],['Puoi ripetere, per favore?','du'],['Può ripetere, per favore?','Sie'],['Come, scusi?','Sie']];
+const SIT4=[
+ {t:'Du weißt nicht, wie man ein Wort auf Italienisch sagt.',a:'Come si dice …?'},
+ {t:'Du weißt nicht, wie man ein Wort ausspricht.',a:'Come si pronuncia questa parola?'},
+ {t:'Du weißt nicht, wie man ein Wort schreibt.',a:'Come si scrive …?'},
+ {t:'Du weißt nicht, was ein Wort bedeutet.',a:'Che cosa significa …?'},
+ {t:'Die Lehrerin hat zu schnell gesprochen.',a:'Può ripetere, per favore?'},
+ {t:'Du suchst die Seite im Buch.',a:'A che pagina?'},
+ {t:'Dein Telefon klingelt, du nimmst ab.',a:'Pronto!'}
+];
+KURS4.forEach(x=>lbl('c4:'+x[1],x[0]+' → '+x[1]));
+DUSIE4.forEach(x=>lbl('f4:'+x[0],x[0]+' ('+x[1]+')'));
+SIT4.forEach((x,i)=>lbl('s4:'+i,x.t+' → '+x.a));
+function genKurs(){
+  const r=Math.random();
+  if(r<.45){
+    const x=pickW(KURS4,y=>'c4:'+y[1]);
+    const others=shuffle(KURS4.filter(y=>y!==x)).slice(0,3).map(y=>y[1]);
+    return {id:'c4:'+x[1],sub:'Wie sagt man das auf Italienisch?',prompt:esc(x[0]),small:true,kind:'choice',options:shuffle([x[1],...others]),answers:[x[1]],itAns:true};
+  }
+  if(r<.7){
+    const x=pickW(DUSIE4,y=>'f4:'+y[0]);const o=['formell (Sie)','informell (du)'];
+    return {id:'f4:'+x[0],sub:'Du oder Sie?',prompt:esc(x[0]),small:true,kind:'choice',options:o,answers:[x[1]==='Sie'?o[0]:o[1]],
+      explain:'du: <span class="it">scusa, senti, puoi</span> · Sie: <span class="it">scusi, senta, può</span>'};
+  }
+  const i=SIT4.indexOf(pickW(SIT4,y=>'s4:'+SIT4.indexOf(y))),x=SIT4[i];
+  const others=shuffle(SIT4.filter(y=>y!==x)).slice(0,3).map(y=>y.a);
+  return {id:'s4:'+i,sub:'Was sagst du?',prompt:esc(x.t),small:true,kind:'choice',options:shuffle([x.a,...others]),answers:[x.a],itAns:true};
+}
+genKurs.ids=()=>[...KURS4.map(x=>'c4:'+x[1]),...DUSIE4.map(x=>'f4:'+x[0]),...SIT4.map((x,i)=>'s4:'+i)];
+
+/* Adjektive und signor/signora (S. 126/127) */
+const SPEC4=[['La paella','spagnola'],['Il parmigiano','italiano'],['La Sachertorte','austriaca'],['Il pastis','francese'],['Il gyros','greco'],['La pizza','italiana'],['La baguette','francese'],['Il Kaiserschmarrn','austriaco']];
+const PEOP4=[['Chelsea','americana','New York',['americana','statunitense']],['Pierre','francese','Nizza'],['Il signor Barbero','italiano','Torino'],['La signora Blanc','svizzera','Berna'],['Pedro Martínez','spagnolo','Madrid'],['John','inglese','Londra'],['Paola Marchesini','italiana','Roma'],['Isabelle','francese','Parigi']];
+const SIGN4=[['Buonasera, ___ signora Gardini!',NONE],['___ signor Manenti è svizzero.','il'],['___ signora Falchetti è di Cesena.','la'],['Oh, ___ signor Botteri, buongiorno!',NONE],["___ signor Gatti, Lei di dov'è?",NONE],["Signora Franchi … ___ signora Fonseca, un'amica di Lisbona.",'la']];
+const ADJF=['spagnolo','spagnola','italiano','italiana','austriaco','austriaca','francese','greco','greca','tedesco','tedesca','inglese'];
+SPEC4.forEach(x=>lbl('sp:'+x[0],x[0]+' è '+x[1]));
+PEOP4.forEach(x=>lbl('pp:'+x[0],x[0]+' è '+x[1]));
+SIGN4.forEach(x=>lbl('sg4:'+x[0],x[0].replace('___',x[1]===NONE?'–':x[1])));
+function genAdj(){
+  const r=Math.random();
+  if(r<.35){
+    const x=pickW(SPEC4,y=>'sp:'+y[0]);
+    const fem=x[0].startsWith('La');
+    const twin=x[1].endsWith('o')?x[1].slice(0,-1)+'a':x[1].endsWith('a')?x[1].slice(0,-1)+'o':null;
+    const pool=ADJF.filter(a=>a!==x[1]&&a!==twin&&(fem?!a.endsWith('o'):!a.endsWith('a')));
+    const opts=[x[1],...(twin?[twin]:[]),...shuffle(pool)].slice(0,4);
+    return {id:'sp:'+x[0],sub:'Woher kommt die Spezialität? (S. 126 Nr. 11a)',prompt:`${esc(x[0])} è <span class="blank">__</span>`,plain:x[0]+' è ___',small:true,kind:'choice',options:shuffle(opts),answers:[x[1]],itAns:true,
+      explain:`<span class="it">${esc(x[0].split(' ')[0].toLowerCase())}</span> zeigt das Geschlecht: ${fem?'weiblich':'männlich'}. `+NAZ_RULE};
+  }
+  if(r<.7){
+    const x=pickW(PEOP4,y=>'pp:'+y[0]);
+    return {id:'pp:'+x[0],sub:'Nationalität mit richtiger Endung eintippen (S. 127 Nr. 12)',prompt:`${esc(x[0])} è <span class="blank">__</span>, di ${esc(x[2])}.`,plain:`${x[0]} è ___, di ${x[2]}.`,small:true,kind:'input',ph:'z. B. tedesca',answers:x[3]||[x[1]],itAns:true,explain:NAZ_RULE};
+  }
+  const s=pickW(SIGN4,y=>'sg4:'+y[0]);
+  return {id:'sg4:'+s[0],sub:'il, la oder kein Artikel? (S. 126 Nr. 9)',prompt:esc(s[0]).replace('___','<span class="blank">__</span>'),plain:s[0],small:true,kind:'choice',options:['il','la',NONE],answers:[s[1]],explain:SIGN_EX};
+}
+genAdj.ids=()=>[...SPEC4.map(x=>'sp:'+x[0]),...PEOP4.map(x=>'pp:'+x[0]),...SIGN4.map(x=>'sg4:'+x[0])];
+
+const W4G=[
+ {name:'Wörter',items:[["l'alfabeto",'das Alphabet'],['la lettera','der Buchstabe'],['le lettere straniere','die fremden Buchstaben'],['la chiocciola','das @ (wörtlich: Schnecke)'],['la parola','das Wort'],['la pagina','die Seite'],['il numero','die Zahl, die Nummer'],['il numero di telefono','die Telefonnummer'],['il cellulare','das Handy'],['la chiesa','die Kirche'],["l'albero",'der Baum']]},
+ {name:'Im Kurs',phr:true,items:KURS4.map(x=>[x[1],x[0]])},
+ {name:'Sätze',phr:true,items:[['Come si scrive Müller?','Wie schreibt man Müller?'],['Che numero è?','Welche Zahl ist es?']]}
+];
+const W4=flatW(W4G);const genW4=makeWordGen(W4);
+WALL.push(...W3,...W4);
+
+function learnAlfa(v){
+  const row=a=>`<li><span class="it">${esc(a[0])}</span><span class="de it">${esc(a[1])}</span></li>`;
+  v.innerHTML=`<p>Die Vokale <span class="it">A E I O U</span> heißen wie sie geschrieben werden.</p>
+  <ul class="list">${ALPHA.slice(0,16).map(row).join('')}</ul>
+  <h2>Lettere straniere</h2><p class="muted">Fremde Buchstaben, nur in Fremdwörtern und Namen.</p>
+  <ul class="list">${ALPHA.slice(16,21).map(row).join('')}</ul>
+  <h2>Umlaute und @</h2>
+  <ul class="list">${ALPHA.slice(21).map(row).join('')}</ul>
+  <h2>Buchstabieren (S. 16)</h2>
+  <ul class="list"><li><span class="it">Come ti chiami? – Anna Müller.</span></li><li><span class="it">Come si scrive Müller? – ${esc(spell('Müller'))}.</span></li></ul>`;
+}
+function learnNum(v){
+  v.innerHTML=`<div class="tw"><table><tbody>${[0,1,2,3,4,5,6].map(r=>`<tr>${[0,7,14].map(c=>{const i=r+c;return i<=20?`<td class="nw"><b>${i}</b> <span class="it">${NUMS[i]}</span></td>`:'<td></td>';}).join('')}</tr>`).join('')}</tbody></table></div>
+  <div class="note"><p>11–16 enden auf <span class="it">-dici</span> (undici … sedici). 17–19 beginnen mit <span class="it">dici-</span> (diciassette, diciotto, diciannove).</p></div>
+  <h2>Che numero è? (S. 17 Nr. 13)</h2>
+  <ul class="list"><li><span class="it">Quindici? – No.</span></li><li><span class="it">Tre? – No.</span></li><li><span class="it">Dieci? – Sì!</span></li></ul>`;
+}
+function learnKurs(v){
+  v.innerHTML=`<h2 style="margin-top:0">Per comunicare in classe (S. 16)</h2>
+  <ul class="list">${KURS4.slice(0,8).map(x=>`<li><span class="it">${esc(x[1])}</span><span class="de">${esc(x[0])}</span></li>`).join('')}</ul>
+  <h2>Befehlsformen</h2>
+  <div class="tw"><table><thead><tr><th></th><th>du (tu)</th><th>Sie (Lei)</th></tr></thead><tbody>
+   <tr><td>Entschuldigung!</td><td class="it">Scusa!</td><td class="it">Scusi!</td></tr>
+   <tr><td>Hör mal! / Hören Sie!</td><td class="it">Senti!</td><td class="it">Senta!</td></tr>
+  </tbody></table></div>
+  <h2>Am Telefon (S. 17)</h2>
+  <ul class="list"><li><span class="it">Pronto!</span><span class="de">Hallo? (beim Abnehmen)</span></li><li><span class="it">il numero di cellulare</span><span class="de">die Handynummer</span></li><li><span class="it">il numero di telefono di casa</span><span class="de">die Festnetznummer</span></li></ul>`;
+}
+function learnAdj(v){
+  v.innerHTML=`<div class="note"><p>${NAZ_RULE}</p><p>Das Adjektiv richtet sich nach der Person oder Sache: <span class="it">la pizza</span> → <span class="it">italiana</span>, <span class="it">il parmigiano</span> → <span class="it">italiano</span>.</p></div>
+  <h2>Spezialitäten (S. 126 Nr. 11a)</h2>
+  <ul class="list">${SPEC4.map(x=>`<li><span class="it">${esc(x[0])} è ${esc(x[1])}</span></li>`).join('')}</ul>
+  <h2>Personen (S. 127 Nr. 12)</h2>
+  <ul class="list">${PEOP4.map(x=>`<li><span class="it">${esc(x[0])} è ${esc(x[1])}, di ${esc(x[2])}.</span></li>`).join('')}</ul>
+  <h2>signor / signora (S. 126 Nr. 9)</h2>
+  <div class="note"><p>${SIGN_EX}</p></div>
+  <ul class="list">${SIGN4.map(x=>`<li><span class="it">${esc(x[0].replace('___',x[1]===NONE?'–':x[1]))}</span></li>`).join('')}</ul>`;
+}
+
+/* ---------- HA UE 4: S. 126 Nr. 10, S. 127 Nr. 14, 15, 16 ---------- */
+const HA10=[{label:'S. 126 Nr. 10',formal:false,who:['Matteo','Giusi','Anna','Matteo','Anna','Matteo'],
+ lines:['ciao, Giusi',"ciao, Matteo… lei è un'amica di Milano",'piacere, sono Anna','ciao, Anna','e tu, di dove sei?','sono di Orvieto'],
+ why:'Informell: <span class="it">ciao</span>, Vornamen, <span class="it">e tu, di dove sei?</span>'}];
+const hw126_10=makeDialogView(HA10,'S. 126 Nr. 10','h10');
+const N14=[
+ {pre:'… Sie nicht wissen, wie man «Bahnsteig» sagt?',post:'',a:['Come si dice «Bahnsteig»?'],test:s=>/come si dice/.test(s)},
+ {pre:'… Sie nicht wissen, wie man ein Wort ausspricht?',post:'',a:['Come si pronuncia questa parola?'],test:s=>/come si pronuncia/.test(s)},
+ {pre:'… Sie nicht wissen, wie man «chiesa» schreibt?',post:'',a:['Come si scrive «chiesa»?'],test:s=>/come si scrive/.test(s)},
+ {pre:'… Sie nicht wissen, was das Wort «albero» heißt?',post:'',a:['Che cosa significa «albero»?'],test:s=>/(che )?cosa significa/.test(s)}
+];
+const hw127_14=v=>fillSheet(v,N14,'hw:n14','S. 127 Nr. 14','Sie sind im Italienischkurs. Was sagen Sie, wenn … Geprüft wird die Kernformulierung, das Wort selbst darf fehlen.');
+const N15=[
+ {n:1,pre:'',post:'sei, Mario?',a:['Di dove']},
+ {n:2,pre:'',post:', scusi?',a:['Come']},
+ {n:3,pre:'Io sono Martina Longo! E Lei?',post:'si chiama?',a:['Come']},
+ {n:4,pre:'',post:'significa «pagina»?',a:['Che cosa']}
+];
+const hw127_15=v=>fillSheet(v,N15,'hw:n15','S. 127 Nr. 15','Setzen Sie das passende Fragewort ein: come (2×), che cosa, di dove.');
+const N16=['uno','nove','sette','tre','sedici','dodici','diciotto'];
+function hw127_16(v){
+  const line=marks=>`<div class="nline">${NUMS.map((w,i)=>`<span class="${marks.has(i)?'on':''}"><b>${i}</b>${marks.has(i)?`<i>${esc(w)}</i>`:''}</span>`).join('')}</div>`;
+  v.innerHTML=`<p class="muted">Trag die Zahlen auf dem Lineal ein: Schreib zu jedem Zahlwort die Ziffer.</p>
+  <div id="nl">${line(new Set())}</div>
+  ${N16.map((w,i)=>`<label class="hwrow"><span class="it">${w}</span><input class="ans" data-n="${i}" inputmode="numeric" autocomplete="off" aria-label="${w} als Ziffer"></label>`).join('')}
+  <div class="actions"><button type="button" class="btn" id="nchk">Prüfen</button><button type="button" class="btn ghost" id="nshow">Lösung zeigen</button></div>
+  <div id="fb" aria-live="polite"></div>`;
+  const ins=[...v.querySelectorAll('input.ans')];
+  ins.forEach((inp,k)=>inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();if(ins[k+1])ins[k+1].focus();else $('#nchk').click();}});
+  $('#nchk').onclick=()=>{
+    let r=0;const marks=new Set();
+    ins.forEach((inp,i)=>{const want=NUMS.indexOf(N16[i]);inp.classList.remove('ok','bad');if(!inp.value.trim())return;const ok=+inp.value.trim()===want;inp.classList.add(ok?'ok':'bad');if(ok){r++;marks.add(want);}});
+    $('#nl').innerHTML=line(marks);
+    grade(lbl('hw:n16','S. 127 Nr. 16'),r===N16.length);
+    const fb=$('#fb');fb.className='fb '+(r===N16.length?'ok':'bad');
+    fb.innerHTML=`<strong>${r} von ${N16.length} richtig</strong>${bar(r,N16.length-r,N16.length)}${r<N16.length?`<p>Lösung: ${N16.map(w=>`${w} = ${NUMS.indexOf(w)}`).join(', ')}</p>`:''}`;
+  };
+  $('#nshow').onclick=()=>{ins.forEach((inp,i)=>inp.value=NUMS.indexOf(N16[i]));$('#nchk').click();};
+}
+lbl('hw:m5','S. 125 Nr. 5');lbl('hw:f7','S. 125 Nr. 7');lbl('hw:n14','S. 127 Nr. 14');lbl('hw:n15','S. 127 Nr. 15');lbl('hw:n16','S. 127 Nr. 16');
+
+
 /* ---------- Themen und Hausaufgaben je UE ---------- */
 const TOPICS=[
  {id:'aus',ue:'ue1',name:'Aussprache',views:[['Lernen',learnAus]],gen:genPron},
@@ -1017,14 +1536,28 @@ const TOPICS=[
  {id:'wort2',ue:'ue2',name:'Wörter',views:[['Lernen',learnWords(W2G)],['Karteikarten',flashView(W2)]],gen:genW2},
  {id:'sort',ue:'ue2',name:'Themen sortieren',views:[['Lernen',learnSort]],gen:genSort},
  {id:'art2',ue:'ue2',name:'Artikel',views:[['Lernen',learnArt2]],gen:genArt2},
- {id:'gruss',ue:'ue2',name:'Grüße & Vorstellen',views:[['Lernen',learnGruss],['Dialoge',dialogView],['Vorstellen',introView]],gen:genGruss,extra:()=>DIALOGS.map((d,i)=>'d:'+i)}
+ {id:'gruss',ue:'ue2',name:'Grüße & Vorstellen',views:[['Lernen',learnGruss],['Dialoge',dialogView],['Vorstellen',introView]],gen:genGruss,extra:()=>DIALOGS.map((d,i)=>'d:'+i)},
+ {id:'herk',ue:'ue3',name:'Herkunft & Vorstellen',views:[['Lernen',learnHerk],['Dialoge',dialogView3]],gen:genHerk,extra:()=>dialogView3.ids()},
+ {id:'naz',ue:'ue3',name:'Nationalitäten',views:[['Lernen',learnNaz],['Länderliste',learnLaender]],gen:genNaz},
+ {id:'wort3',ue:'ue3',name:'Wörter',views:[['Lernen',learnWords(W3G)],['Karteikarten',flashView(W3)]],gen:genW3},
+ {id:'alfa',ue:'ue4',name:'Alphabet',views:[['Lernen',learnAlfa]],gen:genAlfa},
+ {id:'num',ue:'ue4',name:'Zahlen 0–20',views:[['Lernen',learnNum]],gen:genNum},
+ {id:'kurs',ue:'ue4',name:'Im Kurs',views:[['Lernen',learnKurs]],gen:genKurs},
+ {id:'adj',ue:'ue4',name:'Adjektive & signor/signora',views:[['Lernen',learnAdj]],gen:genAdj},
+ {id:'wort4',ue:'ue4',name:'Wörter',views:[['Lernen',learnWords(W4G)],['Karteikarten',flashView(W4)]],gen:genW4}
 ];
 const topicIds=t=>[...new Set([...t.gen.ids(),...(t.extra?t.extra():[])])];
 const HW=[
  {id:'hw-verb',ue:'ue1',name:'Verben io, tu, lui/lei',desc:'Alle Verben vom Blatt „Wichtige Verben“ für io, tu und lui/lei durchkonjugieren.',views:[['Arbeitsblatt',hwVerbSheet],['Üben',v=>quizView(v,genHwVerb)],['Lösung',hwVerbSolution]],ids:()=>genHwVerb.ids()},
  {id:'hw-124-1',ue:'ue2',name:'S. 124 Nr. 1',desc:'Buchstabengitter: Wörter auf Italienisch suchen, Lösungswort finden.',views:[['Aufgabe',hwGrid]],ids:()=>['hw:gitter']},
  {id:'hw-124-2',ue:'ue2',name:'S. 124 Nr. 2',desc:'Grußformeln in der Welle finden.',views:[['Aufgabe',hwWave]],ids:()=>['hw:welle']},
- {id:'hw-124-3',ue:'ue2',name:'S. 124 Nr. 3',desc:'Passende Grußformeln für die Bilder A bis E ergänzen.',views:[['Aufgabe',hwBubbles]],ids:()=>['hw:bilder']}
+ {id:'hw-124-3',ue:'ue2',name:'S. 124 Nr. 3',desc:'Passende Grußformeln für die Bilder A bis E ergänzen.',views:[['Aufgabe',hwBubbles]],ids:()=>['hw:bilder']},
+ {id:'hw-125-5',ue:'ue3',name:'S. 125 Nr. 5',desc:'Aus den Sätzen drei Mini-Dialoge bilden.',views:[['Aufgabe',hw125_5]],ids:()=>['hw:m5']},
+ {id:'hw-125-7',ue:'ue3',name:'S. 125 Nr. 7',desc:'Passende Form von essere oder chiamarsi ergänzen.',views:[['Aufgabe',hw125_7]],ids:()=>['hw:f7']},
+ {id:'hw-126-10',ue:'ue4',name:'S. 126 Nr. 10',desc:'Den Dialog zwischen Matteo, Giusi und Anna in die richtige Reihenfolge bringen.',views:[['Aufgabe',hw126_10]],ids:()=>hw126_10.ids()},
+ {id:'hw-127-14',ue:'ue4',name:'S. 127 Nr. 14',desc:'Was sagen Sie im Kurs, wenn …',views:[['Aufgabe',hw127_14]],ids:()=>['hw:n14']},
+ {id:'hw-127-15',ue:'ue4',name:'S. 127 Nr. 15',desc:'Das passende Fragewort einsetzen.',views:[['Aufgabe',hw127_15]],ids:()=>['hw:n15']},
+ {id:'hw-127-16',ue:'ue4',name:'S. 127 Nr. 16',desc:'Zahlen auf dem Lineal eintragen.',views:[['Aufgabe',hw127_16]],ids:()=>['hw:n16']}
 ];
 const inSel=x=>S.ue==='all'||x.ue===S.ue;
 const tLabel=x=>S.ue==='all'?`${x.name} (${ueName(x.ue)})`:x.name;
@@ -1096,6 +1629,7 @@ function tabHw(v){
   h.views[mi][1]($('#sub'));
 }
 function idLabel(id){
+  if(LBL[id])return LBL[id];
   const parts=id.split(':'),p=parts[0],x=parts.slice(1).join(':');
   const N=()=>ALLNOUNS.find(n=>n.sg===x);
   switch(p){
